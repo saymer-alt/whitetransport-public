@@ -296,7 +296,7 @@ if ! git merge-base "$tag_commit" "origin/$BRANCH" >/dev/null 2>&1; then
         "$upstream_sha" == "3f1656288993f7a7e41e7f00d13ce48d9b1cf9ac" ]]; then
     snapshot_diff="$(git diff --name-only "$upstream_ref" "$tag_commit")"
     fork_diff="$(git diff --name-only "$upstream_ref" "origin/$BRANCH")"
-    expected_local_only="$(printf '%s\\n' '.github/scripts/upstream-sync-review.sh' '.github/workflows/upstream-sync-review.yml')"
+    expected_local_only="$(printf '%s\n' '.github/scripts/upstream-sync-review.sh' '.github/workflows/upstream-sync-review.yml')"
     if [[ "$snapshot_diff" == "docs/operations/release-and-recovery.md" &&
           "$fork_diff" == "$expected_local_only" ]]; then
       log "Release tracking: REVIEWED_SNAPSHOT_DOC_ONLY for $rel_tag @ $tag_commit."
