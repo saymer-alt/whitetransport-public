@@ -53,9 +53,11 @@ fetch_latest_release() {
   if [[ -n "$TEST_DIR" ]]; then
     cat "$TEST_DIR/release.json" 2>/dev/null || true
   else
-    # /releases/latest excludes drafts and prereleases by API contract;
-    # 404 (no releases yet) comes back empty through the || true below.
-    gh api "repos/$UPSTREAM_REPO/releases/latest" 2>/dev/null || true
+    # /releases/latest excludes drafts and prereleases by API contract.
+    # A 404 (no published releases) returns an error body on stdout with a
+    # non-zero exit; the jq filter drops any body without tag_name and the
+    # || true turns that into "no release".
+    gh api "repos/$UPSTREAM_REPO/releases/latest" --jq 'select(.tag_name != null)' 2>/dev/null || true
   fi
 }
 
@@ -128,6 +130,7 @@ $3"
 # Part 1: branch tracking (upstream default branch)
 # ---------------------------------------------------------------------------
 
+branch_pr=""
 behind="$(git rev-list --count "HEAD..$upstream_ref")"
 ahead="$(git rev-list --count "$upstream_ref..HEAD")"
 log "Behind by: $behind; fork-only commits: $ahead"
@@ -225,7 +228,11 @@ if [[ -z "$rel_json" ]]; then
   exit 0
 fi
 
-rel_tag="$(printf '%s' "$rel_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
+rel_tag="$(printf '%s' "$rel_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))' 2>/dev/null || true)"
+if [[ -z "$rel_tag" ]]; then
+  log "WARN: latest-release response could not be parsed (API error or rate limit); skipping release tracking this run."
+  exit 0
+fi
 rel_url="$(printf '%s' "$rel_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("html_url",""))')"
 rel_pub="$(printf '%s' "$rel_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("published_at",""))')"
 rel_notes="$(printf '%s' "$rel_json" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("body") or "")[:2500])')"
