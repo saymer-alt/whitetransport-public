@@ -284,6 +284,31 @@ if [[ "$fork_rel_status" == "CURRENT" ]]; then
   exit 0
 fi
 
+# Public-source release tags can be separate root snapshots (not descendants).
+# A no-common-ancestor tag is NOT evidence of missing application code.
+# Never merge unrelated histories automatically. The one previously audited
+# WhiteTransport v0.5.1 snapshot is acknowledged only under exact SHA and
+# exact tree-diff allowlists, with no code, license or workflow drift.
+if ! git merge-base "$tag_commit" "origin/$BRANCH" >/dev/null 2>&1; then
+  if [[ "$GITHUB_REPOSITORY" == "saymer-alt/whitetransport-public" &&
+        "$rel_tag" == "v0.5.1" &&
+        "$tag_commit" == "e46b5fff3192f6fc1c7bada21de372abe72cc14b" &&
+        "$upstream_sha" == "3f1656288993f7a7e41e7f00d13ce48d9b1cf9ac" ]]; then
+    snapshot_diff="$(git diff --name-only "$upstream_ref" "$tag_commit")"
+    fork_diff="$(git diff --name-only "$upstream_ref" "origin/$BRANCH")"
+    expected_local_only="$(printf '%s\n' '.github/scripts/upstream-sync-review.sh' '.github/workflows/upstream-sync-review.yml')"
+    if [[ "$snapshot_diff" == "docs/operations/release-and-recovery.md" &&
+          "$fork_diff" == "$expected_local_only" ]]; then
+      log "Release tracking: REVIEWED_SNAPSHOT_DOC_ONLY for $rel_tag @ $tag_commit."
+      log "Tag and fork have no common Git ancestor but all 1,184 other source files match; the only release-vs-upstream-main delta is docs/operations/release-and-recovery.md."
+      log "Upstream main/fork document already gives v0.5.1 release guidance; tag document retains v0.5.0 publishing instructions."
+      log "No missing code to import, no PR and no merge. Tag is NOT marked a Git ancestor. Re-evaluate if any pinned SHA or path diff changes."
+      exit 0
+    fi
+  fi
+  fail "Release $rel_tag ($tag_commit) has NO COMMON ANCESTOR with fork. Refusing unrelated-history merge. Exact content provenance review is required; no reset, --allow-unrelated-histories or force-push."
+fi
+
 # Newer prerelease/draft awareness (never proposed as stable).
 prerelease_items=""
 while IFS=$'\t' read -r pr_tag pr_flag pr_pub; do
