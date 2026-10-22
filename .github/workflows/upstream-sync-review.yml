@@ -1,4 +1,7 @@
 # Review-only: never merge into the fork default branch automatically.
+# v2: tracks both the upstream default branch AND published stable releases/tags.
+# The sync logic lives in .github/scripts/upstream-sync-review.sh (tested
+# locally against synthetic Git repositories; see KAS fork-sync docs).
 name: Upstream sync review
 on:
   schedule:
@@ -17,75 +20,17 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout fork default branch
-        uses: actions/checkout@v4
+        # actions/checkout v4.2.2, pinned by commit SHA (supply-chain hardening).
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 'main'
           fetch-depth: 0
           filter: blob:none
-      - name: Compare upstream and open a draft-only sync proposal
+      - name: Compare upstream and open/update draft-only sync proposals
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           UPSTREAM_REPO: 'meanwebuser/whitetransport-public'
           BRANCH: 'main'
-        run: |
-          set -euo pipefail
-          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
-          git fetch --no-tags --filter=blob:none upstream "refs/heads/$BRANCH:refs/remotes/upstream/$BRANCH"
-          upstream_ref="refs/remotes/upstream/$BRANCH"
-          upstream_sha="$(git rev-parse "$upstream_ref")"
-          fork_sha="$(git rev-parse "origin/$BRANCH")"
-          behind="$(git rev-list --count "HEAD..$upstream_ref")"
-          ahead="$(git rev-list --count "$upstream_ref..HEAD")"
-          {
-            echo "## Upstream synchronization"
-            echo "Upstream: $UPSTREAM_REPO ($BRANCH)"
-            echo "Fork: $GITHUB_REPOSITORY ($BRANCH)"
-            echo "Upstream SHA: $upstream_sha"
-            echo "Fork SHA: $fork_sha"
-            echo "Behind by: $behind; ahead by: $ahead"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if (( behind == 0 )); then
-            echo "No upstream-only commits to propose." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json headRefName,url \
-            --jq '.[] | select(.headRefName | startswith("sync/upstream-")) | .url' | head -n 1)"
-          if [[ -n "$existing" ]]; then
-            echo "Existing upstream sync Draft PR: $existing. No duplicate created." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          sync_branch="sync/upstream-${upstream_sha:0:12}"
-          if git ls-remote --quiet --exit-code origin "refs/heads/$sync_branch" >/dev/null 2>&1; then
-            echo "Existing branch $sync_branch; do not overwrite. Check manually." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch -c "$sync_branch" "origin/$BRANCH"
-          if ! git merge --no-ff --no-edit "$upstream_ref"; then
-            git merge --abort || true
-            echo "::error::Upstream conflicts with this fork. Manual merge required."
-            echo "Merge conflict: no changes pushed, default branch untouched." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          git push origin "HEAD:refs/heads/$sync_branch"
-          body="$(printf '%s\n' \
-            '## Review-only upstream update (automated Draft PR)' \
-            '' \
-            "- Upstream: https://github.com/$UPSTREAM_REPO ($BRANCH)" \
-            "- Upstream SHA: $upstream_sha" \
-            "- Fork base SHA: $fork_sha" \
-            "- Missing upstream commits: $behind; fork-only commits: $ahead" \
-            '' \
-            'Review workflows, scripts, licensing, third-party dependencies, transport protocols, secrets, and device compatibility BEFORE merge.' \
-            'There is NO automatic merge, tag, release, or router/VPS deployment.' \
-            'Passing a Git merge does NOT prove runtime/ARM64/MIPSel compatibility.' \
-          )"
-          if ! gh pr create --repo "$GITHUB_REPOSITORY" --draft --base "$BRANCH" --head "$sync_branch" \
-            --title "chore(upstream): review $UPSTREAM_REPO @ ${upstream_sha:0:12}" --body "$body"; then
-            echo "::error::Sync branch pushed, but GitHub blocked PR creation."
-            echo "Enable Settings > Actions > General > Allow GitHub Actions to create pull requests, then open Draft PR from $sync_branch." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "Draft PR opened for human review; fork default branch unchanged." >> "$GITHUB_STEP_SUMMARY"
+        run: bash .github/scripts/upstream-sync-review.sh
