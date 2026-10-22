@@ -9,11 +9,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-  # workflows:write is required only because a release/branch diff that touches
-  # .github/workflows/* cannot be pushed to a sync/* branch without it. The bot
-  # pushes ONLY sync/* branches; the default branch is ruleset-protected and
-  # merged by a human, so upstream CI changes always land through review.
-  workflows: write
   pull-requests: write
 concurrency:
   group: upstream-sync-review-${{ github.repository }}

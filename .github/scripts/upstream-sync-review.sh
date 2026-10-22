@@ -127,6 +127,21 @@ $3"
 }
 
 # ---------------------------------------------------------------------------
+# Push helper: GitHub refuses GITHUB_TOKEN pushes whose diff creates/updates
+# files under .github/workflows/* (the workflows scope is not available to
+# GITHUB_TOKEN). Detect that case and explain it instead of a raw git error.
+# ---------------------------------------------------------------------------
+
+push_branch() { # $1 refspec
+  if ! git push --quiet origin "$1" 2>"$PWD/.git/push-err.log"; then
+    if git diff --name-only "origin/$BRANCH" HEAD 2>/dev/null | grep -q '^\.github/'; then
+      fail "GitHub blocks GITHUB_TOKEN from pushing commits that touch .github/workflows/* (workflows scope is not available to GITHUB_TOKEN). A maintainer must open this proposal manually from an account with workflow scope; nothing was pushed, default branch untouched."
+    fi
+    fail "git push failed for $1; see the log above. Default branch untouched."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Part 1: branch tracking (upstream default branch)
 # ---------------------------------------------------------------------------
 
@@ -155,7 +170,7 @@ for p in prs:
         # non-force update of the proposal branch; never rewrite it.
         git switch --quiet --detach "refs/remotes/origin/$pr_head"
         if git merge --no-ff --no-edit "$upstream_sha" >/dev/null 2>&1; then
-          git push --quiet origin "HEAD:refs/heads/$pr_head"
+          push_branch "HEAD:refs/heads/$pr_head"
           log "Updated proposal branch $pr_head by merge (no force-push); PR #$pr_num now contains upstream $upstream_sha."
           pr_comment_once "$pr_num" "sync-update-$upstream_sha" \
             "Upstream advanced; proposal branch updated by a normal merge commit to upstream \`$upstream_sha\`. No force-push used."
@@ -189,7 +204,7 @@ for p in json.load(sys.stdin):
     else
       git switch --quiet -c "$sync_branch" "origin/$BRANCH"
       if git merge --no-ff --no-edit "$upstream_ref" >/dev/null 2>&1; then
-        git push --quiet origin "HEAD:refs/heads/$sync_branch"
+        push_branch "HEAD:refs/heads/$sync_branch"
         body="$(printf '%s\n' \
           '## Review-only upstream update (automated Draft PR)' \
           '' \
@@ -310,7 +325,7 @@ if [[ -n "$open_rel_pr" ]]; then
       git fetch --quiet origin "refs/heads/$rel_pr_head:refs/remotes/origin/$rel_pr_head"
       git switch --quiet --detach "refs/remotes/origin/$rel_pr_head"
       if git merge --no-ff --no-edit "$tag_commit" >/dev/null 2>&1; then
-        git push --quiet origin "HEAD:refs/heads/$rel_pr_head"
+        push_branch "HEAD:refs/heads/$rel_pr_head"
         log "Release proposal PR #$rel_pr_num updated: $existing_tag -> $rel_tag by normal merge (no force-push)."
         pr_comment_once "$rel_pr_num" "rel-update-$tag_commit" \
           "Upstream published stable \`$rel_tag\` (\`$tag_commit\`); proposal branch updated by merge commit. Previous target: \`$existing_tag\`."
@@ -359,7 +374,7 @@ fi
 
 git switch --quiet -c "$rel_branch" "origin/$BRANCH"
 if git merge --no-ff --no-edit "$tag_commit" >/dev/null 2>&1; then
-  git push --quiet origin "HEAD:refs/heads/$rel_branch"
+  push_branch "HEAD:refs/heads/$rel_branch"
   # Category heuristic over the full default->tag diff (review hints, not a verdict).
   categories=""
   diff_files="$(git diff --name-only "origin/$BRANCH" "$tag_commit" || true)"
