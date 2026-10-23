@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@mercuryworkshop/wisp-js": "^0.4.1",
-    "fastify": "^5.8.5",
+    "fastify": "^5.12.6",
     "pino": "^10.1.0",
     "ws": "^8.18.3"
   },
